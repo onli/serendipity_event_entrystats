@@ -1,0 +1,1 @@
+# serendipity_event_entrystats
