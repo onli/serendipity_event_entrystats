@@ -5,13 +5,7 @@ if (IN_serendipity !== true) {
 }
 
 
-// Probe for a language include with constants. Still include defines later on, if some constants were missing
-$probelang = dirname(__FILE__) . '/' . $serendipity['charset'] . 'lang_' . $serendipity['lang'] . '.inc.php';
-if (file_exists($probelang)) {
-    include $probelang;
-}
-
-include dirname(__FILE__) . '/lang_en.inc.php';
+@serendipity_plugin_api::load_language(dirname(__FILE__));
 
 class serendipity_event_entrystats extends serendipity_event {
     var $title = PLUGIN_EVENT_ENTRYSTATS_NAME;
@@ -23,12 +17,16 @@ class serendipity_event_entrystats extends serendipity_event {
         $propbag->add('description',   PLUGIN_EVENT_ENTRYSTATS_DESC);
         $propbag->add('stackable',     false);
         $propbag->add('author',        'Malte Paskuda');
-        $propbag->add('version',       '0.1');
+        $propbag->add('version',       '0.2');
         $propbag->add('requirements',  array(
             'serendipity' => '0.8'
         ));
-        $propbag->add('event_hooks',   array('frontend_display' => true));
-        $propbag->add('groups', array('MARKUP'));
+        $propbag->add('event_hooks',   array(
+                                            'entry_display' => true,
+                                            'backend_sidebar_entries' => true,
+                                            'backend_sidebar_entries_event_display_entrystats'  => true,
+                                        ));
+        $propbag->add('groups', array('STATISTICS'));
     }
 
     function generate_content(&$title) {
@@ -56,18 +54,34 @@ class serendipity_event_entrystats extends serendipity_event {
     }
 
 
-    function event_hook($event, &$bag, &$eventData) {
+    function event_hook($event, &$bag, &$eventData, $addData = null) {
         global $serendipity;
 
         $hooks = &$bag->get('event_hooks');
 
         if (isset($hooks[$event])) {
             switch($event) {
-                case 'frontend_display':
-                    //make sure it is an entry, not a comment
-                    if (isset($eventData['comments'])) {
-                        $this->countPageView($eventData['id']);
+                case 'entry_display':
+                    //make sure it is an entry, not a comment, and just one entry
+                    if (count($eventData) != 1) {
+                        break;
                     }
+                    if (isset($eventData[0]['comments'])) {
+                        $this->countPageView($eventData[0]['id']);
+                    }
+                    return true;
+                    break;
+
+                case 'backend_sidebar_entries':
+?>
+                            <li><a href="?serendipity[adminModule]=event_display&amp;serendipity[adminAction]=entrystats"><?php echo PLUGIN_EVENT_ENTRYSTATS_NAME; ?></a></li>
+<?php
+                    return true;
+                    break;
+
+                case 'backend_sidebar_entries_event_display_entrystats':
+                    $this->displayStats();
+
                     return true;
                     break;
 
@@ -79,16 +93,63 @@ class serendipity_event_entrystats extends serendipity_event {
         }
     }
 
-    function  countPageView($id) {
+    function countPageView($id) {
         global $serendipity;
-        $sql = "INSERT INTO
-                    {$serendipity['dbPrefix']}entrystats (id)
-                VALUES
-                    ($id)
-                ON DUPLICATE KEY
-                    UPDATE
-                        views = views + 1";
+        
+        if (stristr($serendipity['dbType'], 'sqlite')) {
+            $sql = "INSERT INTO
+                        {$serendipity['dbPrefix']}entrystats (id)
+                    VALUES
+                        ($id)
+                    ON CONFLICT(id)
+                        DO UPDATE SET
+                            views = views + 1";
+
+        } else {
+              $sql = "INSERT INTO
+                        {$serendipity['dbPrefix']}entrystats (id)
+                    VALUES
+                        ($id)
+                    ON DUPLICATE KEY
+                        UPDATE
+                            views = views + 1";
+        }
+        
         serendipity_db_query($sql);
+    }
+
+    function displayStats() {
+        global $serendipity;
+        
+        $sql = "SELECT
+                    title, views FROM
+                {$serendipity['dbPrefix']}entries AS e
+                LEFT JOIN
+                        {$serendipity['dbPrefix']}entrystats AS s
+                ON
+                    e.id = s.id
+                ORDER BY
+                    views";
+        $stats = serendipity_db_query($sql);
+
+        $title_str = $CONST.TITLE;
+        $view_str = $CONST.PLUGIN_EVENT_ENTRYSTATS_VIEWS;
+        
+        $html = "<table border=1><thead>
+        <tr>
+            <td>$title_str</td>
+            <td>$view_str</td>
+        </tr>
+        </thead>
+        <tbody>";
+        foreach ($stats as $row) {
+            $html .= "<tr>
+            <td>${row['title']}</td>
+            <td style='text-align:right'>${row['views']}</td>
+            </tr>";
+        }
+        $html .= "</tbody></table>";
+        echo $html;
     }
 
 }
