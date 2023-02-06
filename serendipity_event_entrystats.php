@@ -129,7 +129,8 @@ class serendipity_event_entrystats extends serendipity_event {
                 ON
                     e.id = s.id
                 ORDER BY
-                    views";
+                    views
+                DESC";
         $stats = serendipity_db_query($sql);
 
         $title_str = $CONST.TITLE;
